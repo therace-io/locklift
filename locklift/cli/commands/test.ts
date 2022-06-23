@@ -1,15 +1,14 @@
-const { Command } = require('commander');
-const Mocha = require('mocha');
-const fs = require('fs');
-const path = require('path');
-const dirTree = require("directory-tree");
+import { Command } from 'commander';
+import Mocha from 'mocha';
+import path from 'path';
+import dirTree from "directory-tree";
 
-const { loadConfig } = require('./../../config');
-const { Locklift } = require('./../../index');
-const utils = require('./../utils');
+import { loadConfig } from './../../config';
+import { Locklift } from './../../index';
+import * as utils from './../utils';
 
 const program = new Command();
-
+require('ts-mocha')
 
 program
   .name('test')
@@ -18,6 +17,8 @@ program
   .option('-t, --test <test>', 'Path to Mocha test folder', 'test')
   .option('-c, --contracts <contracts>', 'Path to the contracts folder', 'contracts')
   .option('-b, --build <build>', 'Path to the build folder', 'build')
+  .option('--external-build [build...]', 'Paths to externally built contract folders')
+  .option('--enable-tracing', 'Enable transaction tracing (experimental)')
     .option(
         '--disable-include-path',
         'Disables including node_modules. Use this with old compiler versions',
@@ -27,10 +28,11 @@ program
     '-n, --network <network>',
     'Network to use, choose from configuration'
   )
-  .requiredOption(
+  .option(
     '--config <config>',
     'Path to the config file',
     async (config) => loadConfig(config),
+    (loadConfig(utils.DEFAULT_CONFIG_FILE))
   )
   .option(
     '--tests [tests...]',
@@ -39,51 +41,53 @@ program
   .allowUnknownOption()
   .action(async (options) => {
     const config = await options.config;
-    
+
     if (config.networks[options.network] === undefined) {
       console.error(`Can't find configuration for ${options.network} network!`);
-      
+
       process.exit(1);
     }
-  
+
     if (options.disableBuild !== true) {
       utils.initializeDirIfNotExist(options.build);
-    
+
       const builder = new utils.Builder(config, options);
-    
+
       const status = builder.buildContracts();
-    
+
       if (status === false) process.exit(1);
     }
-  
+
     // Initialize Locklift and pass it into tests context
-    const locklift = new Locklift(config, options.network);
+    const locklift = new Locklift(config, options);
     
     await locklift.setup();
-    
+
+    //@ts-ignore
     global.locklift = locklift;
-  
+
     // Run mocha tests
+    process.env.TS_NODE_PROJECT = './tsconfig.json';
     const mocha = new Mocha();
 
-    
+
     // Run all .js files in tests or only specified tests
-    let testFiles;
-    
+    let testFiles: string[];
+
     if (Array.isArray(options.tests)) {
       testFiles = options.tests;
     } else {
       const testNestedTree = dirTree(
         path.resolve(process.cwd(), options.test),
-        { extensions: /\.js/ }
+        { extensions: /\.[jt]s/ }
       );
-  
-      testFiles = utils.flatDirTree(testNestedTree).map(t => t.path);
+
+      testFiles = utils.flatDirTree(testNestedTree)?.map(t => t.path) || [];
     }
-    
-    testFiles.forEach((file) => mocha.addFile(file));
+
+    testFiles.forEach((file: string) => mocha.addFile(file));
     mocha.run((fail) => process.exit(fail ? 1 : 0));
   });
 
 
-module.exports = program;
+export default program;

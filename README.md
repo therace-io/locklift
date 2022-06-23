@@ -13,7 +13,12 @@ Locklift is a development environment aiming to help you with FreeTON contracts 
 
 ```
 npm install -g locklift
+```  
+or local project installation
 ```
+npm install locklift
+```
+Note: with local installation, locklift should be called using npx (ex. `npx locklift --version`).
 
 ## Get version
 
@@ -42,7 +47,19 @@ This command initialize new Locklift project, filled with samples:
 │   └── 1-deploy-sample.js
 └── test
     └── sample-test.js
+```  
+
+### Typescript package
+In order to initialize new locklift project with typescript support, run `init` command with `-ts` (or `--typescript`) flag:  
 ```
+$ locklift init --path typescript-locklift-project -ts
+New Locklift typescript project initialized in typescript-locklift-project
+You have to install the following dependencies by yourself: npm i --save-dev typescript @types/chai @types/mocha @types/node
+```  
+
+### Other flags
+`-f, --force` - force run the init command (in case you have any files in target directory);  
+`-i, --installDeps` - automatically install all required dependencies for the project (currently works only for typescript projects).
 
 ## Configuration
 
@@ -121,6 +138,126 @@ $ locklift test --config locklift.config.js --network local
 
 
   3 passing (3s)
+```
+### Debugging
+You can print to console in contracts with special library:
+```
+import "locklift/locklift/console.sol";
+
+contract Sample {
+    function testFunc(uint input) external {
+        tvm.accept();
+        
+        console.log(format("You called testFunc with input = {}", input));
+    }
+}
+```
+Note that `console.log` use internal msg spending 0.01 ever. 
+## Tracing
+The tracing module scans the message tree, determines which contracts have been deployed,
+and decodes all method calls. In case of an error in some section of the execution graph,
+tracing will show the chain of calls that led to the error, as well as the error itself.
+
+Tracing could be enabled on testing or running scripts with flag:
+```bash
+locklift test --config locklift.config.js -n local --enable-tracing
+
+...
+
+	#1 action out of 1
+Addr: 0:785ea492db0bc46e370d9ef3a0cc23fb86f7a734ac7948bb50e25b51b2455de0
+MsgId: 963a963f227d69f2845265335ecee99052411204b767be441755796cc28482f4
+-----------------------------------------------------------------
+TokenWallet.transfer{value: 4.998, bounce: true}(
+    amount: 100
+    recipient: 0:5d0075f4d3b14edb87f78c5928fbaff7aa769a49eedc7368c33c95a6d63bbf17
+    deployWalletValue: 0
+    remainingGasTo: 0:bb0e7143ca4c16a717733ff4a943767efcb4796dd1d808e027f39e7712745efc
+    notify: true
+    payload: te6ccgEBAQEAKAAAS4AXvOIJRF0kuLdJrf7QNzLzvROSLywJoUpcj6w7WfXqVCAAAAAQ
+)
+		⬇
+		⬇
+	#1 action out of 1
+Addr: 0:b00ef94c1a23a48e14cdd12a689a3f942e8b616d061d74a017385f6edc704588
+MsgId: bcbe2fb9efd98efe02a6cb6452f38f3dce364b5480b7352000a32f7bdfde949a
+-----------------------------------------------------------------
+TokenWallet.acceptTransfer{value: 4.978, bounce: true}(
+    amount: 100
+    sender: 0:bb0e7143ca4c16a717733ff4a943767efcb4796dd1d808e027f39e7712745efc
+    remainingGasTo: 0:bb0e7143ca4c16a717733ff4a943767efcb4796dd1d808e027f39e7712745efc
+    notify: true
+    payload: te6ccgEBAQEAKAAAS4AXvOIJRF0kuLdJrf7QNzLzvROSLywJoUpcj6w7WfXqVCAAAAAQ
+)
+		⬇
+		⬇
+	#1 action out of 1
+Addr: 0:5d0075f4d3b14edb87f78c5928fbaff7aa769a49eedc7368c33c95a6d63bbf17
+MsgId: 99034783340906fb5b9eb9a379e1fcb08887992ed0183da78e363ef694ba7c52
+-----------------------------------------------------------------
+EverFarmPool.onAcceptTokensTransfer{value: 4.952, bounce: false}(
+    tokenRoot: 0:c87f8def8ff9ab121eeeb533dc813908ec69e420101bda70d64e33e359f13e75
+    amount: 100
+    sender: 0:bb0e7143ca4c16a717733ff4a943767efcb4796dd1d808e027f39e7712745efc
+    senderWallet: 0:785ea492db0bc46e370d9ef3a0cc23fb86f7a734ac7948bb50e25b51b2455de0
+    remainingGasTo: 0:bb0e7143ca4c16a717733ff4a943767efcb4796dd1d808e027f39e7712745efc
+    payload: te6ccgEBAQEAKAAAS4AXvOIJRF0kuLdJrf7QNzLzvROSLywJoUpcj6w7WfXqVCAAAAAQ
+)
+ !!! Reverted with 1233 error code on compute phase !!!
+```
+If you use contracts built outside of the locklift context you should provide all external build
+directories so that tracing module work correctly:
+```
+locklift test --config locklift.config.js -n local --enable-tracing --external-build node_modules/broxus-ton-tokens-contracts/build
+```
+### Ignoring errors
+By default tracing will throw error on any non-zero code in execution graph, but
+sometimes in contract we can expect some specific errors that could be processed later with bounced msgs.
+In this cases we dont want tracing to throw errors, because such behaviour is expected.
+We can tell tracing to ignore specific errors on compute or action phases.
+
+We can ignore errors on specific call:
+```
+// Tracing will ignore all 51 and 60 errors on compute phase + 30 error on action phase
+// Here 51 compute and 30 action errors will be ignored for all transacions in msg chain and 60 compute error
+// will be ignored only on specific address
+await user.runTarget({
+  contract: root,
+  method: 'deployEmptyWallet',
+  params: {},
+  tracing_allowed_codes: {compute: [51], action: [30], SOME_ADDRESS: {compute: [60]}}
+});
+```
+Or set ignoring by default for all further calls:
+```
+// ignore compute phase erros for all transactions
+locklift.tracing.allowCodes({compute: [51, 60]})
+// ignore more errors for specific address
+locklift.tracing.allowCodesForAddress(SOME_ADDRESS, {compute: [123], action: [111]})
+
+// remove code from default list of ignored errors, so that only 51 erros will be ignored
+// this affects only global rules, per-address rules are not modified
+locklift.tracing.removeAllowedCodes({compute: [60]})
+// remove code from deault list of ignored errors for specific address
+locklift.tracing.removeAllowedCodesForAddress(SOME_ADDRESS, {compute: [123]})
+```
+If we enabled tracing with flag, but we want to disable tracing for specific call we can force-disable it:
+```
+await user.runTarget({
+  contract: root,
+  method: 'deployEmptyWallet',
+  params: {},
+  tracing: false
+});
+```
+At the same time we can force-enable tracing for specific call if tracing flag was not set:
+```
+await user.runTarget({
+  contract: root,
+  method: 'deployEmptyWallet',
+  params: {},
+  tracing: true
+});
 ```
 
 ## Run script

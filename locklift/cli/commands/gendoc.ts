@@ -1,7 +1,7 @@
-const { Command, Option } = require('commander');
+import { Command, Option } from 'commander';
 
-const { loadConfig } = require('./../../config');
-const utils = require('./../utils');
+import { loadConfig } from './../../config';
+import * as utils from './../utils';
 
 const program = new Command();
 
@@ -26,22 +26,23 @@ program.name('gendoc')
       .default('devdoc')
       .choices(['devdoc', 'userdoc'])
   )
-  .requiredOption(
-    '--config <config>',
-    'Path to the config file',
-    async (config) => loadConfig(config),
+  .option(
+      '--config <config>',
+      'Path to the config file',
+      async (config) => loadConfig(config),
+      (loadConfig(utils.DEFAULT_CONFIG_FILE))
   )
   .action(async (options) => {
     const config = await options.config;
-  
+
     utils.initializeDirIfNotExist(options.build);
     utils.initializeDirIfNotExist(options.docs);
-  
+
     const builder = new utils.Builder(config, options);
-  
+
     try {
       const status = builder.buildDocs();
-  
+
       if (status === false) {
         process.exit(1);
       } else {
@@ -53,4 +54,4 @@ program.name('gendoc')
   });
 
 
-module.exports = program;
+export default program;

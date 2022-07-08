@@ -74,6 +74,7 @@
     "superstruct": "^0.14.2",
     "tablemark": "^2.0.0",
     "ton-client-js": "^0.28.1",
+    "ts-node": "^10.8.2",
     "underscore": "^1.13.1"
   },
   "devDependencies": {

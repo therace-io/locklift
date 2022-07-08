@@ -1,7 +1,7 @@
-import { Contract, ContractConstructorParams } from './../contract';
-import { CreateDeployMessageParams } from '../ton';
-import { Locklift } from '../index';
-
+import { Contract, ContractConstructorParams } from "./../contract";
+import { CreateDeployMessageParams } from "../ton";
+import { Locklift } from "../index";
+import BigNumber from "bignumber.js";
 
 /**
  * Locklift plugin for working with classic givers.
@@ -39,47 +39,44 @@ export class Giver {
       tracing,
       tracing_allowed_codes
     }: CreateDeployMessageParams,
-    amount=this.locklift.utils.convertCrystal(10, this.locklift.utils.Dimensions.Nano)
+    amount = this.locklift.utils.convertCrystal(
+      10,
+      this.locklift.utils.Dimensions.Nano
+    )
   ) {
-    if (!tracing_allowed_codes) tracing_allowed_codes= {compute: [], action: []}
+    if (!tracing_allowed_codes)
+      tracing_allowed_codes = { compute: [], action: [] };
     // Extend init params with random _randomNonce if it's found in ABI and autoRandomNonce is enabled
     const extendedInitParams = initParams === undefined ? {} : initParams;
 
     if (contract.autoRandomNonce) {
-      if (contract.abi.data?.find(e => e.name === '_randomNonce')) {
-        extendedInitParams._randomNonce = extendedInitParams._randomNonce === undefined
-          ? this.locklift.utils.getRandomNonce()
-          : extendedInitParams._randomNonce;
+      if (contract.abi.data?.find(e => e.name === "_randomNonce")) {
+        extendedInitParams._randomNonce =
+          extendedInitParams._randomNonce === undefined
+            ? this.locklift.utils.getRandomNonce()
+            : extendedInitParams._randomNonce;
       }
     }
 
-    const {
-      address,
-    } = await this.locklift.ton.createDeployMessage({
+    const { address } = await this.locklift.ton.createDeployMessage({
       contract,
       constructorParams,
       initParams: extendedInitParams,
       keyPair,
-      tracing,tracing_allowed_codes
+      tracing,
+      tracing_allowed_codes
     });
 
-    await this.giver.run({
-      method: 'sendGrams',
-      params: {
-        dest: address,
-        amount,
-      },
-      tracing_allowed_codes: {compute: []},
-    });
+    this.sendGrams(address, amount!);
 
     // Wait for receiving grams
     await this.locklift.ton.client.net.wait_for_collection({
-      collection: 'accounts',
+      collection: "accounts",
       filter: {
         id: { eq: address },
         balance: { gt: `0x0` }
       },
-      result: 'balance'
+      result: "balance"
     });
 
     // Send deploy transaction
@@ -91,9 +88,17 @@ export class Giver {
       tracing,
       tracing_allowed_codes
     });
-    
-    const tx = await this.locklift.ton.waitForRunTransaction({ message, abi: contract.abi });
-    let trace_params = {in_msg_id: tx.transaction.in_msg, allowed_codes: tracing_allowed_codes,force_trace:false, disable_trace:false}
+
+    const tx = await this.locklift.ton.waitForRunTransaction({
+      message,
+      abi: contract.abi
+    });
+    let trace_params = {
+      in_msg_id: tx.transaction.in_msg,
+      allowed_codes: tracing_allowed_codes,
+      force_trace: false,
+      disable_trace: false
+    };
     if (tracing === true) {
       trace_params.force_trace = true;
     } else if (tracing === false) {
@@ -105,20 +110,47 @@ export class Giver {
     return contract;
   }
 
+  async sendGrams(dest: string, amount: string | BigNumber) {
+    if (this.giver.abi.functions?.find(e => e.name === "sendGrams"))
+      return await this.giver.run({
+        method: "sendGrams",
+        params: {
+          dest,
+          amount
+        },
+        tracing_allowed_codes: { compute: [] }
+      });
+    else if (this.giver.abi.functions?.find(e => e.name === "sendTransaction"))
+      return await this.giver.run({
+        method: "sendTransaction",
+        params: {
+          dest,
+          value: amount,
+          bounce: false
+        },
+        tracing_allowed_codes: { compute: [] }
+      });
+  }
+
   async setup() {
     this.giver = new Contract({
       locklift: this.locklift,
       abi: this.locklift.networkConfig.giver.abi,
       address: this.locklift.networkConfig.giver.address,
-      name: 'Giver',
+      name: "Giver"
     } as ContractConstructorParams);
-    this.locklift.tracing.addToContext(this.locklift.networkConfig.giver.address, this.giver);
-    
+    this.locklift.tracing.addToContext(
+      this.locklift.networkConfig.giver.address,
+      this.giver
+    );
+
     // Setup giver key in case of key-protected giver
     if (this.locklift.networkConfig.giver.key) {
-      const keyPair = await this.locklift.ton.client.crypto.nacl_sign_keypair_from_secret_key({
-        secret: this.locklift.networkConfig.giver.key
-      });
+      const keyPair = await this.locklift.ton.client.crypto.nacl_sign_keypair_from_secret_key(
+        {
+          secret: this.locklift.networkConfig.giver.key
+        }
+      );
 
       // TODO: looks like bug in SDK, keypair.secret is extended with keypair.public
       keyPair.secret = keyPair.secret.slice(0, 64);

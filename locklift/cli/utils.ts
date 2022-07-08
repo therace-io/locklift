@@ -1,12 +1,11 @@
-import fs from 'fs';
-import dirTree, { DirectoryTree } from 'directory-tree';
-import { execSync } from 'child_process';
-import _ from 'underscore';
-import { resolve } from 'path';
-import ejs from 'ejs';
+import fs from "fs";
+import dirTree, { DirectoryTree } from "directory-tree";
+import { execSync } from "child_process";
+import _ from "underscore";
+import { resolve } from "path";
+import ejs from "ejs";
 //@ts-ignore no types for tablemark
-import tablemark from 'tablemark';
-
+import tablemark from "tablemark";
 
 export function checkDirEmpty(dir: fs.PathLike): fs.PathLike | boolean {
   if (!fs.existsSync(dir)) {
@@ -16,8 +15,7 @@ export function checkDirEmpty(dir: fs.PathLike): fs.PathLike | boolean {
   return fs.readdirSync(dir).length === 0;
 }
 
-export const DEFAULT_CONFIG_FILE = 'locklift.config.js';
-
+export const DEFAULT_CONFIG_FILE = "locklift.config.js";
 
 export function initializeDirIfNotExist(dir: fs.PathLike): void {
   if (!fs.existsSync(dir)) {
@@ -25,31 +23,28 @@ export function initializeDirIfNotExist(dir: fs.PathLike): void {
   }
 }
 
-
 export function flatDirTree(tree: DirectoryTree): DirectoryTree[] | undefined {
-  return tree.children?.reduce((acc: DirectoryTree[], current: DirectoryTree) => {
-    if (current.children === undefined) {
-      return [
-        ...acc,
-        current,
-      ];
-    }
+  return tree.children?.reduce(
+    (acc: DirectoryTree[], current: DirectoryTree) => {
+      if (current.children === undefined) {
+        return [...acc, current];
+      }
 
-    const flatChild = flatDirTree(current);
+      const flatChild = flatDirTree(current);
 
-    if (!flatChild)
-      return acc;
+      if (!flatChild) return acc;
 
-    return [...acc, ...flatChild];
-  }, []);
+      return [...acc, ...flatChild];
+    },
+    []
+  );
 }
 
 export type ParsedDoc = {
-  path: string,
-  name: string,
-  doc: any,
-}
-
+  path: string;
+  name: string;
+  doc: any;
+};
 
 export class Builder {
   private options: any;
@@ -71,31 +66,47 @@ export class Builder {
       contractsTree.map(({ path }) => {
         this.log(`Building ${path}`);
 
-        const [,contractFileName] = path.match(new RegExp('contracts/(.*).sol'))!;
+        const [, contractFileName] = path.match(
+          new RegExp("contracts/(.*).sol")
+        )!;
 
-        const nodeModules = require
-            .resolve('locklift/package.json')
-            .replace('locklift/package.json', '');
-
+        // const nodeModules = require
+        //   .resolve("locklift/package.json")
+        //   .replace("locklift/package.json", "");
+        const nodeModules = `${resolve("")}/node_modules`;
         const includePath = `--include-path ${nodeModules}`;
 
         const output = execSync(`cd ${this.options.build} && \
-        ${this.config.compiler.path} ${!this.options.disableIncludePath ? includePath : ''} ./../${path}`);
+        ${this.config.compiler.path} ${
+          !this.options.disableIncludePath ? includePath : ""
+        } ./../${path}`);
 
         this.log(`Compiled ${path}`);
 
         // No code was compiled, probably interface compilation
-        if (output.toString() === '') return;
+        if (output.toString() === "") return;
 
-        const contractNameNoFolderStructure = contractFileName.split('/')[contractFileName.split('/').length - 1];
+        const contractNameNoFolderStructure = contractFileName.split("/")[
+          contractFileName.split("/").length - 1
+        ];
 
-        const lib = this.config.linker.lib ? ` --lib ${this.config.linker.lib} `: '';
-        const tvmLinkerLog = execSync(`cd ${this.options.build} && ${this.config.linker.path} compile ${lib} "${contractNameNoFolderStructure}.code" -a "${contractNameNoFolderStructure}.abi.json"`);
+        const lib = this.config.linker.lib
+          ? ` --lib ${this.config.linker.lib} `
+          : "";
+        const tvmLinkerLog = execSync(
+          `cd ${this.options.build} && ${this.config.linker.path} compile ${lib} "${contractNameNoFolderStructure}.code" -a "${contractNameNoFolderStructure}.abi.json"`
+        );
 
-        const [,tvcFile] = tvmLinkerLog.toString().match(new RegExp('Saved contract to file (.*)'))!;
-        execSync(`cd ${this.options.build} && base64 < ${tvcFile} > ${contractNameNoFolderStructure}.base64`);
+        const [, tvcFile] = tvmLinkerLog
+          .toString()
+          .match(new RegExp("Saved contract to file (.*)"))!;
+        execSync(
+          `cd ${this.options.build} && base64 < ${tvcFile} > ${contractNameNoFolderStructure}.base64`
+        );
 
-        execSync(`cd ${this.options.build} && mv ${tvcFile} ${contractNameNoFolderStructure}.tvc`);
+        execSync(
+          `cd ${this.options.build} && mv ${tvcFile} ${contractNameNoFolderStructure}.tvc`
+        );
 
         this.log(`Linked ${path}`);
       });
@@ -116,7 +127,9 @@ export class Builder {
       contractsTree.map(({ path }) => {
         this.log(`Building ${path}`);
 
-        const output = execSync(`cd ${this.options.build} && ${this.config.compiler.path} ./../${path} --${this.options.mode}`);
+        const output = execSync(
+          `cd ${this.options.build} && ${this.config.compiler.path} ./../${path} --${this.options.mode}`
+        );
 
         this.log(`Compiled ${path}`);
 
@@ -125,7 +138,9 @@ export class Builder {
 
       // Filter duplicates by (path, name)
       docs = docs.reduce((acc: ParsedDoc[], doc: ParsedDoc) => {
-        if (acc.find(({ path, name }) => path === doc.path && name === doc.name)) {
+        if (
+          acc.find(({ path, name }) => path === doc.path && name === doc.name)
+        ) {
           return acc;
         }
 
@@ -133,11 +148,13 @@ export class Builder {
       }, []);
 
       // Sort docs by name (A-Z)
-      docs = docs.sort((a,b) => a.name < b.name ? -1 : 1);
+      docs = docs.sort((a, b) => (a.name < b.name ? -1 : 1));
 
       // Save docs in markdown format
       const render = ejs.render(
-        fs.readFileSync(resolve(__dirname, './../templates/index.ejs')).toString(),
+        fs
+          .readFileSync(resolve(__dirname, "./../templates/index.ejs"))
+          .toString(),
         {
           docs,
           tablemark
@@ -147,9 +164,12 @@ export class Builder {
         }
       );
 
-      fs.writeFileSync(resolve(process.cwd(), this.options.docs, 'index.md'), render);
+      fs.writeFileSync(
+        resolve(process.cwd(), this.options.docs, "index.md"),
+        render
+      );
 
-      this.log('Docs generated successfully!');
+      this.log("Docs generated successfully!");
     } catch (e) {
       return false;
     }
@@ -165,36 +185,39 @@ export class Builder {
       // Make them all absolute
       .map(c => resolve(process.cwd(), this.options.build, c));
 
-    const docs = [...output.matchAll(this.docRegex)]
-      .map(m => JSON.parse(m.groups!.doc));
+    const docs = [...output.matchAll(this.docRegex)].map(m =>
+      JSON.parse(m.groups!.doc)
+    );
 
-    return _.zip(contracts, docs).reduce((acc: ParsedDoc[], [contract, doc]: string[]) => {
-      const [path, name] = contract.split(':');
+    return _.zip(contracts, docs).reduce(
+      (acc: ParsedDoc[], [contract, doc]: string[]) => {
+        const [path, name] = contract.split(":");
 
-      // Check name matches the "include" pattern and contract is located in the "contracts" dir
-      if (
-        name.match(new RegExp(this.options.include)) !== null &&
-        path.startsWith(`${process.cwd()}/${this.options.contracts}`)
-      ) {
-        return [
-          ...acc,
-          {
-            path: path.replace(`${process.cwd()}/`, ''),
-            name,
-            doc
-          }
-        ];
-      }
+        // Check name matches the "include" pattern and contract is located in the "contracts" dir
+        if (
+          name.match(new RegExp(this.options.include)) !== null &&
+          path.startsWith(`${process.cwd()}/${this.options.contracts}`)
+        ) {
+          return [
+            ...acc,
+            {
+              path: path.replace(`${process.cwd()}/`, ""),
+              name,
+              doc
+            }
+          ];
+        }
 
-      return acc;
-    }, []);
+        return acc;
+      },
+      []
+    );
   }
 
   private getContractsTree() {
-    const contractsNestedTree = dirTree(
-      this.options.contracts,
-      { extensions: /\.sol/ }
-    );
+    const contractsNestedTree = dirTree(this.options.contracts, {
+      extensions: /\.sol/
+    });
 
     return flatDirTree(contractsNestedTree);
   }
